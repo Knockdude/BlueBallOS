@@ -1,0 +1,51 @@
+name: Build BlueBallOS
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib binutils grub-pc-bin xorriso qemu-system-x86
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh
+      - name: Smoke-test boot in QEMU
+        run: |
+          set +e
+          timeout 10s qemu-system-i386 \
+            -cdrom build/blueballos-ultimate.iso \
+            -m 256 \
+            -display none \
+            -serial file:build/qemu-serial.log \
+            -monitor none \
+            -no-reboot \
+            -no-shutdown
+          qemu_status=$?
+          set -e
+          if [ "$qemu_status" -ne 124 ]; then
+            echo "QEMU exited unexpectedly with status $qemu_status"
+            exit 1
+          fi
+          grep -Fq "BlueBallOS kernel ready" build/qemu-serial.log
+          grep -Fq "PIT interrupt clock running" build/qemu-serial.log
+          if grep -Fq "KERNEL PANIC" build/qemu-serial.log; then
+            echo "The kernel reported an exception during the smoke test."
+            exit 1
+          fi
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: blueballos-iso
+          path: build/blueballos-ultimate.iso
