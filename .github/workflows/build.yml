@@ -3,6 +3,7 @@ name: Build BlueBallOS
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,21 +11,30 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib binutils grub-pc-bin xorriso qemu-system-x86
+          sudo apt-get install -y build-essential gcc-multilib binutils grub-pc-bin grub-common xorriso mtools qemu-system-x86
+
       - name: Build ISO
         run: |
           chmod +x build.sh
           ./build.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v7
+        with:
+          name: blueballos-iso
+          path: build/blueballos-ultimate.iso
+
       - name: Smoke-test boot in QEMU
         run: |
           set +e
-          timeout 10s qemu-system-i386 \
+          timeout 15s qemu-system-i386 \
             -cdrom build/blueballos-ultimate.iso \
             -m 256 \
             -display none \
@@ -34,6 +44,10 @@ jobs:
             -no-shutdown
           qemu_status=$?
           set -e
+          echo "QEMU exit status: $qemu_status"
+          echo "----- serial log -----"
+          cat build/qemu-serial.log || true
+          echo "----------------------"
           if [ "$qemu_status" -ne 124 ]; then
             echo "QEMU exited unexpectedly with status $qemu_status"
             exit 1
@@ -44,8 +58,3 @@ jobs:
             echo "The kernel reported an exception during the smoke test."
             exit 1
           fi
-      - name: Upload ISO
-        uses: actions/upload-artifact@v7
-        with:
-          name: blueballos-iso
-          path: build/blueballos-ultimate.iso
